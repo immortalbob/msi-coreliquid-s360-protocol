@@ -44,7 +44,7 @@ Part of the [S360 protocol reference](README.md). One row per command; the tags 
 | `0x42` | `STOP_MEDIA_NODE` | INFERRED | no | |
 | `0x44` | `PAUSE_MEDIA_NODE` | INFERRED | no | |
 | `0x50` | `SET_DISPLAY_MODE` | complete for modes 0, 1, 2, 5, 6 | yes | mode 7 (Dynamic); banner background numbering; image slot 6 |
-| `0x52` | `GET_DISPLAY_MODE` | reply layout OBSERVED 2026-10-31 for modes 0, 1, 2, 5 | no (vendor never sends it); OBSERVED | exact meaning of byte 0 (INFERRED "active" flag) and of the inactive modes' screen bytes |
+| `0x52` | `GET_DISPLAY_MODE` | complete for modes 0, 1, 2, 5: byte 0 = active flag, then the mode's header and its last selection | no (vendor never sends it); OBSERVED 2026-10-31 | |
 
 Remaining UNKNOWN on the LCD: `SET_DEV_TIME`,
 `STOP_MEDIA_NODE` / `PAUSE_MEDIA_NODE` (`0x42` / `0x44`), `hourFormat` 0 and the Dynamic mode (7), plus the
@@ -66,7 +66,9 @@ MSI's API, without byte layouts.
   `GET_DISPLAY_MODE` reply for four modes (byte 0 marks the active mode; the active mode's fields are the ones
   set); a stale `0x01F0` status that only a power cycle cleared; late `GET_DEV_INFO` answers after a cold
   power-on; backlight 50 % and 100 % look the same; direction turns firmware pages but not media; the unit string
-  has no visible effect on firmware 9. Open items updated in both documents.
+  has no visible effect on firmware 9. Open items updated in both documents. Later the same evening: the clock
+  styles and built-in image slots 0-6 switched by a third-party driver (all worked), which showed that
+  `GET_DISPLAY_MODE`'s screen bytes are each mode's own last selection (section 5.6 corrected).
 
 - **2026-10-28, update.** "Related work" section added to the README (sakir, corecontrol, coreliquid_driver,
   liquidctl PR #784 and issues #758 and #579, LibreHardwareMonitor), with notes that no public source

@@ -307,12 +307,14 @@ showing (items CPU temperature, pump and liquid temperature in design 3, set ear
 | 2 banner | `00` | `00 01` | `01`, then `00` |
 | 1 image | `00` | `00 08` | `01` × 6, `00` × 2, then `00` |
 
-Bytes 1-2 are the queried mode's `slideShow` and `count` as in `SET_DISPLAY_MODE`, and for the active mode the
-screen bytes are the ones that were set. **Byte 0 is not the mode number:** it is `01` only for the mode on
-screen (INFERRED: MSI's `outMode` used as an "is active" flag). For the inactive modes the screen bytes look
-like a list of which entries exist rather than the last selection (INFERRED: all five clock styles, one banner,
-six of eight image slots holding uploaded media on this unit). Factory test modes 3 and 4 were not queried. The
-LCD's status stayed idle and its page unchanged throughout.
+Bytes 1-2 are the queried mode's `slideShow` and `count` as in `SET_DISPLAY_MODE`. **Byte 0 is not the mode
+number:** it is `01` only for the mode on screen (MSI's `outMode` used as an "is active" flag). The screen bytes
+are **each mode's own last selection**, kept while another mode shows. OBSERVED the same evening: after a third-party
+driver had shown clock style 4 and then image slot 6 and returned to the monitor page, the queries read monitor
+`01 05 0F` + the page, image `00 00 08` + `01` at slot 6 only, clock `00 00 05` + `01` at style 4 only. The first
+reads in the table above (`01` × 5 for the clock, × 6 for the images) were therefore the vendor software's earlier
+selections of several entries at once (INFERRED: its slideshow sets; image slot 6 plays although it was not
+marked). Factory test modes 3 and 4 were not queried. The LCD's status stayed idle throughout.
 
 ### 5.7 `enum_Screens` (METADATA)
 
@@ -620,6 +622,10 @@ enumerated); a settle delay of a few seconds is a cautious default (INFERRED).
   (INFERRED).
 - Banner: `SET_DISPLAY_MODE` (background), PNG upload of the text, one `PLAY_MEDIA_NODE` about 1 s later.
 - Clock: `SET_DISPLAY_MODE` + `SEND_HOST_TIME`.
+
+OBSERVED 2026-10-31: the clock (all five styles, time correct within a second) and image (built-in slots 0-6,
+all showing a picture, slot 6 included) sequences above, sent by a third-party driver exactly as captured, work
+without the vendor software; a monitor-page `SET_DISPLAY_MODE` returns to the page. The LCD's status stayed idle.
 - Weather: `SET_DISPLAY_MODE` + `SEND_HOST_WEATHER` about 0.2 s later.
 
 ## 10. Commands that must not be sent
@@ -658,7 +664,7 @@ enumerated); a settle delay of a few seconds is a cautious default (INFERRED).
 | # | Question | How to settle |
 |---|---|---|
 | 1 | `SEND_HOST_WEATHER`: position of the precipitation float, the zero prefix, other weather values | capture the weather page on days with rain or snow, or in another location |
-| 2 | ~~`GET_DEV_ID` reply, `GET_DISPLAY_MODE` reply~~ **Answered 2026-10-31** (sections 4.1 and 5.6). Still open: what byte 0 and the inactive modes' screen bytes mean exactly | switch modes and query again |
+| 2 | ~~`GET_DEV_ID` reply, `GET_DISPLAY_MODE` reply~~ **Answered 2026-10-31** (sections 4.1 and 5.6) | done |
 | 3 | `SET_DEV_TIME` effect; `hourFormat` 0 | send the frame; change the Windows or vendor clock format and capture |
 | 4 | `STOP_MEDIA_NODE` / `PAUSE_MEDIA_NODE` payloads and effect | send with a known node name |
 | 5 | Mode 7 "Dynamic" | never seen; find a vendor path that uses it, or try `SET_DISPLAY_MODE` 7 with a known node |
