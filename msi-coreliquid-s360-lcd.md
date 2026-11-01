@@ -143,6 +143,11 @@ kept writing, and a full power cycle (PSU off) brought it back to `0x0000`. So `
 a left-over transfer flag. A cautious driver treats them as "no file uploads" and keeps the flash, reset and
 failure codes as "no writes at all".
 
+**OBSERVED 2026-11-01:** every completed upload by a third-party driver left `0x00F0` ("download OK"), which then
+stayed through further uploads and service restarts and was cleared only by a power cycle. Uploads made with the
+flag set worked like the first one, as the vendor's do. A driver can therefore ignore `0x00F0` / `0x01F0` for
+uploads and still stop all writes on the flash, reset and failure codes.
+
 **After a cold power-on (OBSERVED 2026-10-28)** the first GET_REPORT for the `GET_DEV_INFO` reply timed out
 three times (Windows `ERROR_SEM_TIMEOUT`) before the LCD answered normally: a late answer, not a lost device.
 Wait about 2 s after enumeration and retry.
@@ -264,6 +269,11 @@ in which MSI Center renders the banner text with the chosen font, size and colou
 these captures the vendor did not re-render the image after the first banner, so every banner upload carried
 the same picture of the word "test"; the scroll fields of 6.2 changed independently of it.
 
+**OBSERVED 2026-11-01:** the firmware takes any 420 × 39 RGBA PNG, not only the vendor's rendering. A
+third-party 1,720-byte PNG (white text on a transparent canvas, drawn with ffmpeg's `drawtext`) sent with the
+sequence of 9.3 (background 4, node `R2`, `scrollDir` 1, `scrollSpeed` 4) scrolled **left to right** over the
+background, fully readable.
+
 ```
 07:11:53.480  01 6B 5A 50 00 13 00 00 00  02 00 01  04 00 .. 00     background 4
 07:12:32.107  01 6B 5A 50 00 13 00 00 00  02 00 01  05 00 .. 00     background 5
@@ -382,9 +392,9 @@ whichever of the eight names exists (INFERRED).
 
 So the speed setting maps to `scrollSpeed` **Fast 7, Normal 4, Slow 1**, and the line layout picks both the
 node and `scrollDir`: One Line uses node `R2` with `scrollDir` 1, Multi-Line uses node `R0` with `scrollDir`
-0. The two are independent: the vendor sends the chosen speed even for the multi-line layout. Whether a
-multi-line banner moves at all with `scrollDir` 0, the axis of `scrollDir` and the unit of `x`, `y` are
-UNKNOWN.
+0. The two are independent: the vendor sends the chosen speed even for the multi-line layout. `scrollDir` 1
+moves the one-line banner left to right (OBSERVED 2026-11-01, section 5.3). Whether a multi-line banner moves
+at all with `scrollDir` 0 and the unit of `x`, `y` are UNKNOWN.
 
 ### 6.3 `STOP_MEDIA_NODE` (`0x42`), `PAUSE_MEDIA_NODE` (`0x44`)
 
@@ -403,10 +413,23 @@ the node name alone, zero padded. Never sent by the vendor: a mode change simply
    last report is zero padded. (A 3-byte file is one report; 227,243 bytes took 223 reports in 0.42 s.)
 4. **`HMI_SEND_FILE_DATA_END` (`0x26`)**, `DATA_LEN` 0, no payload.
 
-No reply is read at any step, `0x24` never appears, and `SAVE_FILE_NODE` (`0x28`) is never sent. INFERRED:
-uploaded files are volatile, which is why the vendor re-uploads the user's media every time it is selected
-(three uploads of the same node name in capture 1b) and re-uploads the banner image before every
-`PLAY_MEDIA_NODE`. Whether `SAVE_FILE_NODE` would make them persistent is UNKNOWN.
+No reply is read at any step, `0x24` never appears, and `SAVE_FILE_NODE` (`0x28`) is never sent. Uploaded
+files are volatile, which is why the vendor re-uploads the user's media every time it is selected (three
+uploads of the same node name in capture 1b) and re-uploads the banner image before every `PLAY_MEDIA_NODE`.
+Whether `SAVE_FILE_NODE` would make them persistent is UNKNOWN.
+
+**OBSERVED 2026-11-01 (third-party driver, the same unit):**
+
+- An upload lasts only while the LCD has power. After a full power cycle (power supply switched off) the LCD booted
+  into one of its built-in animations; `GET_DISPLAY_MODE` for mode 1 then reported slot 7 selected, but
+  re-selecting slot 7 (`SET_DISPLAY_MODE` plus its eight `PLAY_MEDIA_NODE` frames, 9.3) showed nothing new.
+  Built-in slots 0..6 are factory content and survive.
+- Within one power-on the upload is kept: after uploading to slot 7, selecting slot 0 and then slot 7 again
+  without a new upload played the uploaded media again. So the vendor's re-upload on every selection is needed
+  only after a power loss; a driver can upload once per power-on and re-upload after each reconnect.
+- An upload took about 1 s for 211 KB (207 reports, sent 2 ms apart through the Windows HID class driver's
+  interrupt OUT path). In capture 1b the vendor's first data report was followed by a 0.6 s gap before the rest;
+  INFERRED: the firmware holds off the pipe while it prepares, and a blocking HID write simply waits.
 
 ### 7.2 User media (capture 1b, 1d)
 
@@ -431,6 +454,14 @@ The vendor transcodes the chosen GIF or video on the host to an H.264 MP4 and up
 ```
 
 A video file chosen in the vendor's Video/Image page takes exactly the same path as a GIF (capture 1d).
+
+**The MP4 format.** HOST: the vendor's transcoded files (`ImageV\Video`, sizes equal to the uploads above) are
+ISO BMFF with the brands `isom`, `iso2`, `avc1`, `mp41` (the ffmpeg MP4 muxer), one H.264 track at 240 × 320,
+**Baseline profile, level 3.0**, 25 fps, about 512 kbit/s average, no B-frames, one keyframe, `moov` after
+`mdat`; a 58-frame GIF with 40 ms frames became 58 frames at 25 fps. OBSERVED 2026-11-01: a file made by
+ffmpeg 7.0 with the same parameters (`-vf scale=240:320,...,fps=25,format=yuv420p -c:v libx264 -profile:v
+baseline -level:v 3.0 -b:v 512k -bf 0 -f mp4`) plays in slot 7. Media are not rotated by `SET_LCM_DIR`
+(section 4.5), so the file must already be in the panel's orientation.
 
 ### 7.3 Settings file (capture 1, after every backlight or direction change)
 
@@ -565,8 +596,12 @@ location, one forecast):
 | 48 | 2 | weather, u16, `enum_Weathers` | 1 = Cloud | CAPTURED |
 
 The precipitation-probability float was 0.0, so its position is INFERRED: it sits in one of the zero runs,
-32..35 or 44..47. With one sample, every field other than the three non-zero ones is unverified. The weather
-icons for values other than Cloud, and any value above 3, are UNKNOWN.
+32..35 or 44..47. The weather icons for values other than Cloud, and any value above 3, are UNKNOWN.
+
+**OBSERVED 2026-11-01:** a third-party frame in exactly this layout (every other byte zero) with 12.3 °C,
+humidity 100 and weather 1, sent after the weather page's `SET_DISPLAY_MODE`, made the panel show **"12°",
+"100%" and the cloud icon**. That confirms the three fields and shows the firmware rounds the temperature to
+whole degrees.
 
 ### 8.4 `SEND_HOST_MSG` (`0x3A`) and the temperature-unit string
 
@@ -628,6 +663,11 @@ all showing a picture, slot 6 included) sequences above, sent by a third-party d
 without the vendor software; a monitor-page `SET_DISPLAY_MODE` returns to the page. The LCD's status stayed idle.
 - Weather: `SET_DISPLAY_MODE` + `SEND_HOST_WEATHER` about 0.2 s later.
 
+OBSERVED 2026-11-01: the slot-7 sequence (page, eight `PLAY_MEDIA_NODE`, then the upload) with a third-party MP4,
+the banner sequence (page, upload, `PLAY_MEDIA_NODE`) with a third-party PNG, and the weather sequence with a
+third-party `SEND_HOST_WEATHER` all work without the vendor software; the media starts playing when its upload
+completes, with no further frame. Re-selecting slot 7 later in the same power-on needs no upload (7.1).
+
 ## 10. Commands that must not be sent
 
 | Opcode / value | Name | Why |
@@ -647,11 +687,12 @@ without the vendor software; a monitor-page `SET_DISPLAY_MODE` returns to the pa
 | Panel | 240 × 320 | CAPTURED (asset sizes), INFERRED (orientation handling) |
 | Monitor page refresh byte | 5 | CAPTURED; meaning INFERRED |
 | Design ids | 1, 2, 3 built in; 4 host-supplied | CAPTURED |
-| Image slots | 0..5 built in (6 never selected), 7 user; user media played at `x = y = 350` | CAPTURED |
-| Banner | played at `x = y = 200`; One Line = node `R2`, `scrollDir` 1; Multi-Line = node `R0`, `scrollDir` 0; speed Fast 7, Normal 4, Slow 1; host-rendered text, 420 × 39 PNG | CAPTURED |
+| Image slots | 0..6 built in (slot 6 never selected by the vendor, shows a picture: OBSERVED 2026-10-31), 7 user; user media played at `x = y = 350`, kept only while powered (OBSERVED 2026-11-01) | CAPTURED |
+| User media | H.264 MP4, 240 × 320, Baseline 3.0, 25 fps, about 512 kbit/s, node `M1-S7-V-R0.mp4` | HOST, OBSERVED |
+| Banner | played at `x = y = 200`; One Line = node `R2`, `scrollDir` 1 (left to right, OBSERVED); Multi-Line = node `R0`, `scrollDir` 0; speed Fast 7, Normal 4, Slow 1; host-rendered text, any 420 × 39 RGBA PNG | CAPTURED |
 | Clock styles | 0..4 | CAPTURED |
 | Hour format | 1 = 24 h, in all 46 frames; 0 = 12 h never seen | CAPTURED, METADATA |
-| Weather | mode 6, `screen[0]` = 1; `SEND_HOST_WEATHER` f32 °C at 28, u16 humidity at 42, u16 weather at 48 | CAPTURED (partial) |
+| Weather | mode 6, `screen[0]` = 1; `SEND_HOST_WEATHER` f32 °C at 28 (shown rounded), u16 humidity at 42, u16 weather at 48 | CAPTURED (partial), OBSERVED |
 | Time | local clock sent as UTC seconds, `jetLag` 0.0 | CAPTURED |
 | Unit strings | `55AASETTEMP05AA5` °C, `55AASETTEMP15AA5` °F in `SEND_HOST_MSG` | CAPTURED |
 | Live data | `SEND_HOST_CPU_INFO`, 16 × u16, every 0.34 s | CAPTURED |
@@ -668,8 +709,8 @@ without the vendor software; a monitor-page `SET_DISPLAY_MODE` returns to the pa
 | 3 | `SET_DEV_TIME` effect; `hourFormat` 0 | send the frame; change the Windows or vendor clock format and capture |
 | 4 | `STOP_MEDIA_NODE` / `PAUSE_MEDIA_NODE` payloads and effect | send with a known node name |
 | 5 | Mode 7 "Dynamic" | never seen; find a vendor path that uses it, or try `SET_DISPLAY_MODE` 7 with a known node |
-| 6 | `scrollDir` axis and its effect on a multi-line banner; `x`, `y` units | vary them on the device |
-| 7 | `SAVE_FILE_NODE`, `HMI_FW_Mode.ini`, persistence of uploads | upload, save, power-cycle, play by name |
+| 6 | `scrollDir` 0 on a multi-line banner; `x`, `y` units (`scrollDir` 1 = left to right, OBSERVED 2026-11-01) | vary them on the device |
+| 7 | `SAVE_FILE_NODE`, `HMI_FW_Mode.ini`. Uploads without them are volatile (OBSERVED 2026-11-01, 7.1) | upload, save, power-cycle, play by name |
 | 8 | `O` versus `V` in node names; the full banner background numbering | more vendor captures |
 | 9 | Opcode `0x24`; the `0x21` reply | issue GET_REPORT after `SEND_FILE_NODE` |
 | 10 | Which physical rotation each direction value gives | observe the panel |

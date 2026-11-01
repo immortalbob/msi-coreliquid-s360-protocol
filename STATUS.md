@@ -27,23 +27,23 @@ Part of the [S360 protocol reference](README.md). One row per command; the tags 
 | `0x18` | `SET_LCM_BACKLIGHT` | complete | yes | |
 | `0x1A` | `SET_LCM_DIR` | complete | yes | physical rotation per value |
 | `0x1C` | `SET_LCM_RESET` | do not send | no | |
-| `0x20` | `SEND_FILE_NODE` | complete | yes | `0x21` reply never read |
+| `0x20` | `SEND_FILE_NODE` | complete; third-party uploads of user media and banner OBSERVED 2026-11-01 | yes | `0x21` reply never read |
 | `0x22` | `HMI_SEND_FILE_DATA_START` | complete | yes | |
 | `0x24` | | UNKNOWN | no | |
 | `0x26` | `HMI_SEND_FILE_DATA_END` | complete | yes | |
-| `0x28` | `SAVE_FILE_NODE` | INFERRED | no | persistence |
+| `0x28` | `SAVE_FILE_NODE` | INFERRED | no | whether it makes uploads persistent (without it they are lost on power-off, OBSERVED 2026-11-01) |
 | `0x2A` | `DEL_FILE_NODE` | do not send | no | |
 | `0x30` | `SEND_HOST_CPU_INFO` | complete | yes | |
 | `0x32` | `SEND_HOST_FAN_SPEED` | INFERRED | no | unused by the vendor |
 | `0x34` | `SEND_HOST_FPS` | INFERRED | no | unused by the vendor |
 | `0x36` | `SEND_HOST_TIME` | complete | yes | `hourFormat` 0 never seen (1 in all 46 frames) |
-| `0x38` | `SEND_HOST_WEATHER` | partial: temperature f32 °C at 28, humidity u16 at 42, weather u16 at 48 | yes (capture 1e, one sample) | precipitation float position INFERRED (32 or 44); other weather values |
+| `0x38` | `SEND_HOST_WEATHER` | partial: temperature f32 °C at 28, humidity u16 at 42, weather u16 at 48; all three confirmed on the panel, OBSERVED 2026-11-01 | yes (capture 1e, one sample) | precipitation float position INFERRED (32 or 44); weather values other than 1 |
 | `0x3A` | `SEND_HOST_MSG` | complete for the unit string | yes | other text, sync-mode string |
 | `0x3C` | `SEND_HOST_GPU_INFO` | INFERRED | no | unused by the vendor |
-| `0x40` | `PLAY_MEDIA_NODE` | complete; banner speed Fast 7, Normal 4, Slow 1 | yes | axis of `scrollDir`, `x`/`y` units |
+| `0x40` | `PLAY_MEDIA_NODE` | complete; banner speed Fast 7, Normal 4, Slow 1; `scrollDir` 1 = left to right, OBSERVED 2026-11-01 | yes | `scrollDir` 0, `x`/`y` units |
 | `0x42` | `STOP_MEDIA_NODE` | INFERRED | no | |
 | `0x44` | `PAUSE_MEDIA_NODE` | INFERRED | no | |
-| `0x50` | `SET_DISPLAY_MODE` | complete for modes 0, 1, 2, 5, 6 | yes | mode 7 (Dynamic); banner background numbering; image slot 6 |
+| `0x50` | `SET_DISPLAY_MODE` | complete for modes 0, 1, 2, 5, 6; every mode driven by third-party code, OBSERVED 2026-10-31 and 2026-11-01 | yes | mode 7 (Dynamic); banner background numbering |
 | `0x52` | `GET_DISPLAY_MODE` | complete for modes 0, 1, 2, 5: byte 0 = active flag, then the mode's header and its last selection | no (vendor never sends it); OBSERVED 2026-10-31 | |
 
 Remaining UNKNOWN on the LCD: `SET_DEV_TIME`,
@@ -55,6 +55,17 @@ not verified by us. One project (sakir) describes the Dynamic mode's node names 
 MSI's API, without byte layouts.
 
 ## Change log
+
+- **2026-11-01, update: the LCD's uploads, banner and weather page driven by third-party code.** All tagged
+  OBSERVED, from the same unit. **Uploads are volatile:** a full power cycle lost the user media in slot 7 (the
+  LCD booted into a built-in animation), while within one power-on re-selecting slot 7 replays an upload with no
+  new upload, so a driver needs one upload per power-on rather than one per selection. A third-party MP4 in the
+  vendor's format (240 × 320, H.264 Baseline 3.0, 25 fps, about 512 kbit/s; the format read from the vendor's
+  transcoded files, HOST) plays; a third-party 420 × 39 RGBA PNG plays as the banner, and the one-line banner
+  (`scrollDir` 1) scrolls left to right; a third-party `SEND_HOST_WEATHER` with temperature, humidity and weather
+  showed "12°", "100%" and the cloud icon, confirming the three fields and the rounding to whole degrees. The
+  left-over `0x00F0` after uploads stays until a power cycle and does not stop further uploads. Section 7.2 gained
+  the MP4 format; sections 4.2, 5.3, 6.2, 7.1, 8.3, 9.3, 11 and 12 updated.
 
 - **2026-10-31, update: bench results.** Statements tagged OBSERVED, from driving the same unit with
   third-party code (README, source 4). Controller: `R[15]` confirmed as the tenths of the liquid temperature

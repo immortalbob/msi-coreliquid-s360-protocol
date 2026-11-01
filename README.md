@@ -17,9 +17,9 @@ side was not documented anywhere public. On 2026-10-28 the USB traffic between M
 captured with USBPcap while every function of the LCD page was exercised, and the frames were decoded. This
 reference writes down what was seen, what MSI's own software declares, and what is still unknown, so that
 anyone writing a driver for this cooler can start from facts rather than guesses. Bench tests on the same unit
-with third-party code (2026-10-26 to 2026-10-31) later answered several questions the captures could not, such
-as the power-on state, the Default and Smart modes, the missing feed timeout and the two LCD queries the vendor
-never sends; those statements are tagged OBSERVED.
+with third-party code (2026-10-26 to 2026-11-01) later answered several questions the captures could not, such
+as the power-on state, the Default and Smart modes, the missing feed timeout, the two LCD queries the vendor
+never sends, and how long the LCD keeps uploaded media (only while powered); those statements are tagged OBSERVED.
 
 ## Scope
 
@@ -67,8 +67,9 @@ The facts in these documents come from these sources only:
 2. The public .NET metadata tables of MSI's `API_Coreliquid.dll` (ECMA-335 Constant, Field, MethodDef and
    Param tables), read with a small standard-library parser to obtain constant values and the names of types,
    methods and parameters.
-3. For the host-side notes only: the sizes and names of the vendor's installed asset files and the value
-   names of its registry key, read without modification.
+3. For the host-side notes only: the sizes and names of the vendor's installed asset files, the container and
+   codec headers of the media files it transcoded (profile, size, frame rate), and the value names of its
+   registry key, all read without modification.
 4. For the OBSERVED statements: the devices' own replies and behaviour when driven by independently written
    third-party code on the same PC (frames built from sources 1 and 2).
 
