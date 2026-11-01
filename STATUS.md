@@ -6,13 +6,14 @@ Part of the [S360 protocol reference](README.md). One row per command; the tags 
 
 | Command | Layout | Captured | Notes |
 |---|---|---|---|
-| `D0 31` status | complete | yes (capture 1) | `R[15]` = tenths of the liquid temperature is INFERRED; `R[12..13]`, `R[20..21]` UNKNOWN |
-| `D0 32` / `D0 33` readback | complete | no (vendor never reads back); OBSERVED on the bench | `0x33` echoes `0x32`; four-value retention OBSERVED |
-| `D0 40` / `D0 41` write | complete | yes (Balance preset) | custom and fixed forms OBSERVED, not captured |
-| `D0 85` feed | complete | yes | cadence 0.34 s; one 10 °C frame after a mode write |
+| `D0 31` status | complete | yes (capture 1) | `R[15]` = tenths of the liquid temperature, OBSERVED 2026-10-31; `R[12..13]`, `R[20..21]` UNKNOWN |
+| `D0 32` / `D0 33` readback | complete | no (vendor never reads back); OBSERVED on the bench | `0x33` echoes `0x32`; four-value retention OBSERVED; power-on state mode 4 on all slots, OBSERVED |
+| `D0 40` / `D0 41` write | complete | yes (Balance preset) | custom and fixed forms OBSERVED, not captured; modes 4 (Default) and 5 (Smart) behaviour OBSERVED 2026-10-31; mismatched mode bytes UNKNOWN |
+| `D0 85` feed | complete | yes | cadence 0.34 s; one 10 °C frame after a mode write; **no timeout within 10 min**, OBSERVED 2026-10-31 |
 | `01 B0` firmware | complete | yes | reply `01 5A 04` |
 | `01 B1` model index | complete | yes | reply `01 5A 30` |
-| `01 B6`, `01 B4`, `01 C0`, `01 C2` | from liquidctl (K360) | no | unverified on the S360 |
+| `01 B6`, `01 B4`, `01 C0` | from liquidctl (K360) | no | unverified on the S360 |
+| `01 C2` buzzer | from liquidctl (K360) | no | accepted but silent, OBSERVED 2026-10-31 |
 | `01 D0`, `D0 FA` | do not send | no | reset, ISP |
 | interface 0 (bulk) | UNKNOWN | no | |
 
@@ -20,7 +21,7 @@ Part of the [S360 protocol reference](README.md). One row per command; the tags 
 
 | Opcode | Name | Layout | Captured | Open |
 |---|---|---|---|---|
-| `0x10` | `GET_DEV_ID` | INFERRED | no | reply content |
+| `0x10` | `GET_DEV_ID` | complete: reply `A6 9B 00 00` = PID `0x9BA6` | no (vendor never sends it); OBSERVED 2026-10-31 | |
 | `0x14` | `GET_DEV_INFO` | complete | yes | |
 | `0x16` | `SET_DEV_TIME` | INFERRED | no | effect |
 | `0x18` | `SET_LCM_BACKLIGHT` | complete | yes | |
@@ -43,9 +44,9 @@ Part of the [S360 protocol reference](README.md). One row per command; the tags 
 | `0x42` | `STOP_MEDIA_NODE` | INFERRED | no | |
 | `0x44` | `PAUSE_MEDIA_NODE` | INFERRED | no | |
 | `0x50` | `SET_DISPLAY_MODE` | complete for modes 0, 1, 2, 5, 6 | yes | mode 7 (Dynamic); banner background numbering; image slot 6 |
-| `0x52` | `GET_DISPLAY_MODE` | INFERRED | no | reply |
+| `0x52` | `GET_DISPLAY_MODE` | reply layout OBSERVED 2026-10-31 for modes 0, 1, 2, 5 | no (vendor never sends it); OBSERVED | exact meaning of byte 0 (INFERRED "active" flag) and of the inactive modes' screen bytes |
 
-Remaining UNKNOWN on the LCD: the `GET_DISPLAY_MODE` and `GET_DEV_ID` replies, `SET_DEV_TIME`,
+Remaining UNKNOWN on the LCD: `SET_DEV_TIME`,
 `STOP_MEDIA_NODE` / `PAUSE_MEDIA_NODE` (`0x42` / `0x44`), `hourFormat` 0 and the Dynamic mode (7), plus the
 smaller gaps in the table.
 
@@ -54,6 +55,18 @@ not verified by us. One project (sakir) describes the Dynamic mode's node names 
 MSI's API, without byte layouts.
 
 ## Change log
+
+- **2026-10-31, update: bench results.** Statements tagged OBSERVED, from driving the same unit with
+  third-party code (README, source 4). Controller: `R[15]` confirmed as the tenths of the liquid temperature
+  (20-minute idle / load log); the power-on state (mode 4 on all slots after a cold start, kept across a restart,
+  not in flash); what modes 4 (Default: constant, feed ignored, pump 100 %) and 5 (Smart: follows the feed) do;
+  the duty slew of about 4 points per 3 s; **no feed timeout within 10 minutes** (duties held the last fed value's
+  curve values unchanged), with a driver-safety note in the README; `01 C2` buzzer accepted but silent; the pump
+  slot confirmed by an independent tach. LCD: the `GET_DEV_ID` reply (`A6 9B 00 00`, the LCD's PID) and the
+  `GET_DISPLAY_MODE` reply for four modes (byte 0 marks the active mode; the active mode's fields are the ones
+  set); a stale `0x01F0` status that only a power cycle cleared; late `GET_DEV_INFO` answers after a cold
+  power-on; backlight 50 % and 100 % look the same; direction turns firmware pages but not media; the unit string
+  has no visible effect on firmware 9. Open items updated in both documents.
 
 - **2026-10-28, update.** "Related work" section added to the README (sakir, corecontrol, coreliquid_driver,
   liquidctl PR #784 and issues #758 and #579, LibreHardwareMonitor), with notes that no public source

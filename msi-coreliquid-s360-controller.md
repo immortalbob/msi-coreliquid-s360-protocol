@@ -67,7 +67,7 @@ Layout (credited to liquidctl and LibreHardwareMonitor; every field below was ch
 | 10 | 2 | slot 4 RPM, **pump** | u16 |
 | 12 | 2 | "inlet" temperature | `00 00` throughout capture 1; meaning UNKNOWN |
 | 14 | 1 | **liquid temperature, whole °C** | `0x1F`..`0x22` = 31..34 °C in capture 1 |
-| 15 | 1 | **liquid temperature, tenths** (INFERRED, strong) | only the values `00`..`09` occur, and the pair steps `1F 09` → `20 00` → `20 01` ... as the liquid warms, so `R[14].R[15]` reads 31.9, 32.0, 32.1 °C. Earlier open-source readers treat `R[14..15]` as one u16 or ignore `R[15]` |
+| 15 | 1 | **liquid temperature, tenths** (OBSERVED 2026-10-31) | only the values `00`..`09` occur, and the pair steps `1F 09` → `20 00` → `20 01` ... as the liquid warms, so `R[14].R[15]` reads 31.9, 32.0, 32.1 °C. Confirmed by a 20-minute idle / load / idle log (5 s samples, liquid 36.3 → 40.3 → 37.7 °C): at all ten whole-degree changes of `R[14]`, `R[15]` wrapped `09` → `00` on a rise and `00` → `09` on a fall. Liquid °C = `R[14]` + `R[15]` / 10. Earlier open-source readers treat `R[14..15]` as one u16 or ignore `R[15]` |
 | 16 | 2 | temperature sensor 1 | u16; `7D 00` = 125 = "no sensor" (LibreHardwareMonitor's rule), constant in capture 1 |
 | 18 | 2 | temperature sensor 2 | u16; 125 = absent, constant |
 | 20 | 2 | UNKNOWN | `00 00` throughout |
@@ -98,7 +98,7 @@ Reply after the vendor's mode write of 06:42:22 (**CAPTURED, 06:42:23.193**): id
 |---|---|---|
 | 0, 1, 2 | the three radiator fans, driven as one group | credited to liquidctl and LibreHardwareMonitor; not verifiable in these captures (no radiator fans on the captured controller) |
 | 3 | the 60 mm fan in the pump cap | CAPTURED: `R[8..9]` equals the value the vendor sends to the LCD as hardware-monitor item 6 "Water Block Fan" in the same second (`0x0427` in the `0x31` reply at 06:40:57.321 and in the LCD frame at 06:40:57.337). Its Balance duty at 0 °C is 20 %, the lowest of the three channels |
-| 4 | the pump | CAPTURED: `R[10..11]` equals LCD item 4 "Pump Fan" (`0x06D0` in both frames above), and its Balance duty at 0 °C is 50 %. OBSERVED 2026-10-27 with a third-party driver: slot 4 is the channel that behaves as the pump on this unit |
+| 4 | the pump | CAPTURED: `R[10..11]` equals LCD item 4 "Pump Fan" (`0x06D0` in both frames above), and its Balance duty at 0 °C is 50 %. OBSERVED 2026-10-27 with a third-party driver: slot 4 is the channel that behaves as the pump on this unit. OBSERVED 2026-10-26 by an independent tach: the pump's own tach lead, read on a motherboard fan header, rose from 1769 to 2030-2290 RPM while slot 4 was driven at 62-66 % |
 
 Open-source projects disagreed on slots 3 and 4 (liquidctl's K360 names put the pump on slot 3, Libre-
 HardwareMonitor's S360 labels put it on slot 4). The capture settles it for the S360: **slot 4 is the pump.**
@@ -113,8 +113,12 @@ Both replies carry `D0 32` at `R[0..1]`. Five 8-byte blocks follow at `R[2]`, `R
 firmware keeps only the first four of the seven values of each block written with `0x40` / `0x41`. A
 five-point curve read back as its first four points; a fixed block written as `[3, 60,60,60,60,60,60,60]` read
 back as `[3, 60,60,60,60,0,0,0]`, with the 60 % duty in effect. Consequences: write at most four curve points
-and put the 100 % point among them; compare a readback on the first four values. Whether the power-on
-configuration is also four values long is UNKNOWN.
+and put the 100 % point among them; compare a readback on the first four values.
+
+**Power-on configuration (OBSERVED 2026-10-26 to 2026-10-31, from `0x32` / `0x33` read before any write at each
+host start).** The configuration is not stored in flash. It survives a Windows restart (the controller stays
+powered) but not a shutdown: after every cold power-on all five slots read **mode 4 (Default)**, which is what
+the cooler runs until a host writes. See section 5 for what mode 4 does.
 
 ## 5. `0x40` / `0x41` configuration writes
 
@@ -131,8 +135,11 @@ with mismatched mode bytes is UNKNOWN.
 | 1 | Balance | preset |
 | 2 | Game | preset |
 | 3 | Customize | `0x40` carries 7 duties d0..d6, `0x41` carries 7 temperatures t0..t6; point *i* is (t_i, d_i), piecewise-linear (INFERRED from the vendor's UI). Unused points are zero |
-| 4 | Default | preset, not offered by the vendor's UI (METADATA); behaviour on the S360 UNKNOWN |
-| 5 | Smart | preset, not offered by the vendor's UI (METADATA); behaviour on the S360 UNKNOWN |
+| 4 | Default | preset, not offered by the vendor's UI (METADATA). **OBSERVED 2026-10-31: constant, the feed is ignored:** slot 0 60 %, slots 1 and 2 0 %, slot 3 (pump-cap fan) 50 %, slot 4 (pump) 100 %, unchanged while the fed temperature moved 46-62 °C. This is the power-on state (section 4), so from a cold start the pump runs at full speed until a host writes, and fans on slots 1-2 stand still in that window |
+| 5 | Smart | preset, not offered by the vendor's UI (METADATA). **OBSERVED 2026-10-31: dynamic, follows the feed** smoothly rather than along a visible fixed curve: pump 64-97 %, slot 0 47-60 %, slots 2 and 3 about 10 points below slot 0, slot 1 0 %, at fed temperatures of 45-65 °C |
+
+**Slew (OBSERVED 2026-10-31).** In every mode the firmware moves a duty towards its new target at roughly 4
+percentage points per 3 s, so a mode change takes 10-20 s to settle.
 
 **Fixed duty** has no mode of its own: mode 3 with all duties equal and all temperatures zero (liquidctl's
 method). On this unit the stored form is `[3, v,v,v,v,0,0,0]` because of the four-value retention.
@@ -140,7 +147,8 @@ method). On this unit the stored form is `[3, v,v,v,v,0,0,0]` because of the fou
 **Presets are not autonomous.** The controller has no temperature sensor of its own for the curves
 (documented by liquidctl for the K360; consistent with everything captured here): presets and custom curves
 are evaluated against the **last value received with `0x85`**. If the host stops feeding, the duties freeze
-at the last evaluation. Only a fixed duty is independent of the feed.
+at the last evaluation (OBSERVED for 10 minutes, section 6). Only a fixed duty, and mode 4, are independent of
+the feed.
 
 ### Captured example: Balance on all five slots
 
@@ -178,8 +186,15 @@ feeds every 2 s, coreliquid_driver every 2 s; any cadence works, since the contr
 Balance curves at their 0 °C duties (radiator 28 %, pump 50 %, pump-cap fan 20 %). A driver should
 never send 0 °C; on sensor failure send a high value (100 °C) so that the curves go to full duty.
 
-**Timeout or watchdog: UNKNOWN.** No source documents one and none was observed. Stop-feed tests have not
-been done.
+**No feed timeout within 10 minutes (OBSERVED 2026-10-31).** With custom curves on all slots, the feed was
+stopped at idle after a last value of 45 °C and the `0x31` duties were logged every 5 s for 10 minutes. The
+duties settled within seconds on the curves' 45 °C values (radiator 34 %, pump-cap fan 31 %, pump 60 %) and
+stayed exactly there for the whole 10 minutes (113 of 115 samples; the other two were the normal slew); the
+pump held 1986-2013 RPM. When the feed resumed, the duties followed it again at once. No source documents a
+watchdog either. Consequence for drivers: **if the host dies, the cooler stays on its last fed value** (INFERRED
+indefinitely; longer than 10 minutes not tried). A driver should keep a safe floor on the pump curve, send a
+high value (100 °C) when it loses its own temperature source, and ideally have a separate watchdog that writes a
+fixed safe duty if the driver process disappears.
 
 ## 7. Report `0x01` queries: firmware and model
 
@@ -192,7 +207,7 @@ has `R[0..1]` = `01 5A` and the value at `R[2]`, `CC` fill after it.
 | `B0` | APROM firmware version | **CAPTURED (capture 1, 06:42:17.567, reply .573)** | request `01 B0 CC .. CC`, reply `01 5A 04 CC .. CC`: version byte `0x04` |
 | `B6` | LDROM firmware version | liquidctl (K360); not captured on the S360 | reply value at `R[2]` |
 | `B4` | LDROM checksum | liquidctl (K360); not captured | `R[8..9]` |
-| `C0`, `C2` | volume, buzzer | liquidctl (K360); UNKNOWN whether the S360 controller has a buzzer; not captured | |
+| `C0`, `C2` | volume, buzzer | liquidctl (K360); not captured. **OBSERVED 2026-10-31:** `01 C2` with type 1, 650 Hz was accepted (no error, the controller kept answering normally) and **no sound was heard** next to the PC. INFERRED: the S360 controller has no buzzer, or ignores the K-series command. Volume not tried | |
 | `D0` | **reset MCU** | liquidctl lists it (commented out) | **do not send** |
 
 The vendor queries `B1` then `B0` once, at the start of its init, 5 s before the fan-mode write. liquidctl's
@@ -236,10 +251,11 @@ read `0x31`, read `0x32` and `0x33` (keep them as the restore point), start the 
 | # | Question | How to settle |
 |---|---|---|
 | 1 | Meaning of `R[12..13]` (always `00 00` here) and `R[20..21]` of the status reply | read them on a unit with the optional temperature probes, or across a long load sweep |
-| 2 | Confirm `R[15]` as tenths with a reference thermometer | log `R[14..15]` against the liquid temperature shown by the vendor UI |
-| 3 | Whether the controller has a feed timeout or watchdog | stop the feed at a known temperature and watch the duties for 10 minutes (keep the pump fixed at a safe duty first) |
-| 4 | Behaviour of modes 4 (Default) and 5 (Smart) on the S360 | write them with the pump slot kept safe and read the duties over a temperature sweep |
+| 2 | ~~Confirm `R[15]` as tenths~~ **Settled 2026-10-31** (section 3: wraps at every whole-degree change of `R[14]`) | done |
+| 3 | ~~Whether the controller has a feed timeout or watchdog~~ **None within 10 minutes** (section 6, 2026-10-31); longer stops not tried | done (10 min) |
+| 4 | ~~Behaviour of modes 4 (Default) and 5 (Smart) on the S360~~ **Settled 2026-10-31** (section 5: Default constant, Smart follows the feed) | done |
 | 5 | How the firmware resolves mismatched mode bytes between the `0x40` and `0x41` blocks of one slot | bench test |
-| 6 | Power-on configuration before any host writes | cold boot with no vendor software, read `0x32` / `0x33` / `0x31` first |
+| 6 | ~~Power-on configuration before any host writes~~ **Mode 4 on all slots after a cold power-on; kept across a restart** (section 4, 2026-10-26 to 31) | done |
 | 7 | Purpose of interface 0 (bulk) | descriptor dump and, if ever offered, a capture of the vendor's firmware updater |
 | 8 | `01 B6` / `01 B4` on the S360 | one capture of the vendor's updater's version check |
+| 9 | Whether the S360 has a buzzer at all (`01 C2` gave no sound, section 7) | vendor information; or try other `type` values and `01 C0` volume |

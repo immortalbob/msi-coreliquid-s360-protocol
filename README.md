@@ -16,7 +16,10 @@ The controller side of the S360 was already partly known from open-source softwa
 side was not documented anywhere public. On 2026-10-28 the USB traffic between MSI Center and both devices was
 captured with USBPcap while every function of the LCD page was exercised, and the frames were decoded. This
 reference writes down what was seen, what MSI's own software declares, and what is still unknown, so that
-anyone writing a driver for this cooler can start from facts rather than guesses.
+anyone writing a driver for this cooler can start from facts rather than guesses. Bench tests on the same unit
+with third-party code (2026-10-26 to 2026-10-31) later answered several questions the captures could not, such
+as the power-on state, the Default and Smart modes, the missing feed timeout and the two LCD queries the vendor
+never sends; those statements are tagged OBSERVED.
 
 ## Scope
 
@@ -66,6 +69,8 @@ The facts in these documents come from these sources only:
    methods and parameters.
 3. For the host-side notes only: the sizes and names of the vendor's installed asset files and the value
    names of its registry key, read without modification.
+4. For the OBSERVED statements: the devices' own replies and behaviour when driven by independently written
+   third-party code on the same PC (frames built from sources 1 and 2).
 
 No code was decompiled or disassembled. No MSI source code was used or seen. The only MSI strings reproduced
 here are the command and enumeration names from the metadata tables and the ASCII strings that appear on the
@@ -163,14 +168,19 @@ S360 device addresses so that nothing else on the bus lands in the file.
    then the data. Transfer type 2 is control (the LCD's commands), 1 is interrupt (the controller's
    reports and the LCD's file data).
 
-Still uncaptured, in case you want to contribute: `GET_DEV_ID`, `GET_DISPLAY_MODE`, `SET_DEV_TIME`,
-`STOP_MEDIA_NODE` / `PAUSE_MEDIA_NODE`, `SAVE_FILE_NODE`, the "Dynamic" display mode, a 12-hour clock
-(`hourFormat` 0), and weather frames with rain, snow or a non-zero precipitation chance. See
-[STATUS.md](STATUS.md).
+Still uncaptured, in case you want to contribute: `SET_DEV_TIME`, `STOP_MEDIA_NODE` / `PAUSE_MEDIA_NODE`,
+`SAVE_FILE_NODE`, the "Dynamic" display mode, a 12-hour clock (`hourFormat` 0), and weather frames with rain,
+snow or a non-zero precipitation chance. (`GET_DEV_ID` and `GET_DISPLAY_MODE` are never sent by the vendor;
+their replies were read by sending them directly, see the LCD document.) See [STATUS.md](STATUS.md).
 
 ## Safety
 
 Both controllers can be reset or re-flashed over the same interfaces. Each document lists those commands
-with a do-not-send warning. Nothing in this reference has been tested beyond observing the vendor software;
-anyone sending frames to their own cooler does so at their own risk, and should keep the pump duty high
-while experimenting.
+with a do-not-send warning. Apart from the OBSERVED statements, nothing in this reference has been tested
+beyond observing the vendor software; anyone sending frames to their own cooler does so at their own risk,
+and should keep the pump duty high while experimenting.
+
+**The controller has no feed timeout** (OBSERVED for 10 minutes, controller document section 6): presets and
+custom curves keep acting on the last temperature the host sent. If your driver stops, the cooler stays at
+whatever that value asked for, idle duties included. Keep a safe pump floor in every curve, send 100 °C when
+your temperature source fails, and consider a watchdog that writes a fixed safe duty if your driver dies.

@@ -82,7 +82,7 @@ layout described in section 4.
 
 | Opcode | Name (METADATA) | Len | Reply | Status | Section |
 |---|---|---|---|---|---|
-| `0x10` | `GET_DEV_ID` | 4 | `0x11`, 4 | METADATA only; never sent by the vendor | 4.1 |
+| `0x10` | `GET_DEV_ID` | 4 | `0x11`, 4 | never sent by the vendor; OBSERVED 2026-10-31 | 4.1 |
 | `0x14` | `GET_DEV_INFO` | 4 | `0x15`, 20 declared, **16 on the wire** | CAPTURED (capture 1, 06:42:20.646) | 4.2 |
 | `0x16` | `SET_DEV_TIME` | 4 | none | METADATA only; never sent | 4.3 |
 | `0x18` | `SET_LCM_BACKLIGHT` | 4 | none | CAPTURED (capture 1, 6 frames) | 4.4 |
@@ -105,15 +105,19 @@ layout described in section 4.
 | `0x42` | `STOP_MEDIA_NODE` | 32 | none | METADATA only; never sent | 6 |
 | `0x44` | `PAUSE_MEDIA_NODE` | 32 | none | METADATA only; never sent | 6 |
 | `0x50` | `SET_DISPLAY_MODE` | 19 | none | CAPTURED (39 frames, modes 0, 1, 2, 5 and 6) | 5 |
-| `0x52` | `GET_DISPLAY_MODE` | 1 | `0x53`, 19 | METADATA only; never sent (the touch panel lacks it) | 5 |
+| `0x52` | `GET_DISPLAY_MODE` | 1 | `0x53`, 19 | never sent by the vendor (the touch panel lacks it); OBSERVED 2026-10-31 | 5.6 |
 
 ## 4. Device commands
 
 ### 4.1 `GET_DEV_ID` (`0x10`) → `0x11`
 
 METADATA: `GetDeviceID(ref byte id_Low, ref byte id_High)`, request payload 4 bytes, reply payload 4 bytes.
-INFERRED: the reply holds a 16-bit ID, low byte first. Never captured; the request is presumably 4 zero
-bytes like `GET_DEV_INFO`.
+Never sent by the vendor, so never captured.
+
+**OBSERVED 2026-10-31** (sent by a third-party driver as `01 6B 5A 10 00 04 00 00 00  00 00 00 00`, reply read
+with GET_REPORT like `GET_DEV_INFO`): reply payload **`A6 9B 00 00`**, i.e. id_Low `A6`, id_High `9B`: the
+16-bit ID is the LCD's own USB product ID `0x9BA6`, low byte first. The LCD's status stayed idle and its page
+unchanged.
 
 ### 4.2 `GET_DEV_INFO` (`0x14`) → `0x15`
 
@@ -133,6 +137,16 @@ download OK / in progress / failed; `0x00F1` / `0x01F1` / `0xFFF1` flash OK / in
 / `0x01F2` / `0xFFF2` reset OK / in progress / failed. INFERRED: any non-zero value means a firmware
 operation is under way and the host should stop writing.
 
+**A stale `0x01F0` (OBSERVED 2026-10-28).** After a morning of about 30 vendor file transfers the LCD reported
+`0x01F0` ("download in progress") for hours with no firmware update running; the vendor software ignored it and
+kept writing, and a full power cycle (PSU off) brought it back to `0x0000`. So `0x00F0` / `0x01F0` alone can be
+a left-over transfer flag. A cautious driver treats them as "no file uploads" and keeps the flash, reset and
+failure codes as "no writes at all".
+
+**After a cold power-on (OBSERVED 2026-10-28)** the first GET_REPORT for the `GET_DEV_INFO` reply timed out
+three times (Windows `ERROR_SEM_TIMEOUT`) before the LCD answered normally: a late answer, not a lost device.
+Wait about 2 s after enumeration and retry.
+
 ### 4.3 `SET_DEV_TIME` (`0x16`)
 
 METADATA: `SetDeviceTime(long unixTime)`, payload 4 bytes. INFERRED: u32 Unix time. Never sent by the
@@ -150,6 +164,9 @@ Every change is followed by the settings-file write of section 7.3.
 06:44:32.515  01 6B 5A 18 00 04 00 00 00  32 00 00 00  00 .. 00     (50 %)
 ```
 
+OBSERVED 2026-10-28 (sent by a third-party driver): on this panel only 0 (blank) and non-zero look different;
+50 % and 100 % are visibly the same.
+
 ### 4.5 `SET_LCM_DIR` (`0x1A`)
 
 Payload: i32 **degrees**, one of 0, 90, 180, 270 (CAPTURED; the vendor's "Direction" button has four
@@ -165,6 +182,9 @@ positions). Init sends 0. Followed by the settings-file write.
 Which physical rotation each value produces was not recorded; the vendor keeps separate portrait and
 landscape asset sets, and the monitor-page background is uploaded in both 240 × 320 and 320 × 240 (section 7.4),
 so the firmware is expected to pick the asset for the current direction (INFERRED).
+
+OBSERVED 2026-10-28 (sent by a third-party driver): the direction turns the firmware-drawn pages (the
+monitor page turned at 90° and back at 0°), but not a playing media node.
 
 ## 5. `SET_DISPLAY_MODE` (`0x50`) and the display modes
 
@@ -275,8 +295,24 @@ temperature-unit change. The location comes from the host OS and cannot be chang
 ### 5.6 `GET_DISPLAY_MODE` (`0x52`) → `0x53`
 
 METADATA: `GetDisplayMode(byte seekMode, ref byte outMode, ref byte slideShow, ref byte count, ref byte[]
-screen)`; request payload 1 byte (the mode to query), reply payload 19 bytes mirroring `SET_DISPLAY_MODE`
-(INFERRED). Never sent by the vendor.
+screen)`; request payload 1 byte (the mode to query), reply payload 19 bytes. Never sent by the vendor.
+
+**OBSERVED 2026-10-31** (sent by a third-party driver, reply read with GET_REPORT), with the monitor page
+showing (items CPU temperature, pump and liquid temperature in design 3, set earlier by that driver):
+
+| Queried mode | Reply byte 0 | Bytes 1-2 | Bytes 3-18 (`screen[16]`) |
+|---|---|---|---|
+| 0 monitor | `01` | `05 0F` | `03` at items 1, 4 and 8, `00` elsewhere: exactly the page that was set |
+| 5 clock | `00` | `00 05` | `01 01 01 01 01`, then `00` |
+| 2 banner | `00` | `00 01` | `01`, then `00` |
+| 1 image | `00` | `00 08` | `01` × 6, `00` × 2, then `00` |
+
+Bytes 1-2 are the queried mode's `slideShow` and `count` as in `SET_DISPLAY_MODE`, and for the active mode the
+screen bytes are the ones that were set. **Byte 0 is not the mode number:** it is `01` only for the mode on
+screen (INFERRED: MSI's `outMode` used as an "is active" flag). For the inactive modes the screen bytes look
+like a list of which entries exist rather than the last selection (INFERRED: all five clock styles, one banner,
+six of eight image slots holding uploaded media on this unit). Factory test modes 3 and 4 were not queried. The
+LCD's status stayed idle and its page unchanged throughout.
 
 ### 5.7 `enum_Screens` (METADATA)
 
@@ -548,6 +584,9 @@ strings also contain `55AASETSYNCMODE##5AA5` with a two-digit decimal in place o
 `SetSyncMode(int)`); it was never sent and its effect is UNKNOWN. Whether arbitrary text in this frame is
 displayed anywhere is UNKNOWN.
 
+OBSERVED 2026-10-28: on LCD firmware 9 the unit string has no visible effect on the monitor page, whether sent
+by the vendor software or by a third-party driver; the host-data values are shown as sent.
+
 ## 9. Sequences
 
 ### 9.1 Vendor init (CAPTURED, capture 1, about 80 s after the vendor service restarted)
@@ -619,7 +658,7 @@ enumerated); a settle delay of a few seconds is a cautious default (INFERRED).
 | # | Question | How to settle |
 |---|---|---|
 | 1 | `SEND_HOST_WEATHER`: position of the precipitation float, the zero prefix, other weather values | capture the weather page on days with rain or snow, or in another location |
-| 2 | `GET_DEV_ID` reply, `GET_DISPLAY_MODE` reply | send them (read-only) and read with GET_REPORT |
+| 2 | ~~`GET_DEV_ID` reply, `GET_DISPLAY_MODE` reply~~ **Answered 2026-10-31** (sections 4.1 and 5.6). Still open: what byte 0 and the inactive modes' screen bytes mean exactly | switch modes and query again |
 | 3 | `SET_DEV_TIME` effect; `hourFormat` 0 | send the frame; change the Windows or vendor clock format and capture |
 | 4 | `STOP_MEDIA_NODE` / `PAUSE_MEDIA_NODE` payloads and effect | send with a known node name |
 | 5 | Mode 7 "Dynamic" | never seen; find a vendor path that uses it, or try `SET_DISPLAY_MODE` 7 with a known node |
