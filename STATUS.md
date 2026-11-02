@@ -56,6 +56,9 @@ MSI's API, without byte layouts.
 
 ## Change log
 
+- **2026-11-02, update.** The upload size limit (OBSERVED): a 459,561-byte upload resets the LCD mid-transfer; 211,237
+  and 227,243 bytes work; the limit between them was not probed (LCD document, section 7.2, "Size limit").
+
 - **2026-11-01, update: the LCD's uploads, banner and weather page driven by third-party code.** All tagged
   OBSERVED, from the same unit. **Uploads are volatile:** a full power cycle lost the user media in slot 7 (the
   LCD booted into a built-in animation), while within one power-on re-selecting slot 7 replays an upload with no

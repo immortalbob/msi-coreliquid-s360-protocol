@@ -463,6 +463,8 @@ ffmpeg 7.0 with the same parameters (`-vf scale=240:320,...,fps=25,format=yuv420
 baseline -level:v 3.0 -b:v 512k -bf 0 -f mp4`) plays in slot 7. Media are not rotated by `SET_LCM_DIR`
 (section 4.5), so the file must already be in the panel's orientation.
 
+**Size limit.** OBSERVED 2026-11-02: an upload of **459,561 bytes** (a 58-frame MP4 in this format) made the LCD drop off USB partway through the data reports; it re-enumerated by itself about 4 s later (`GET_DEV_INFO`: firmware 9, status idle) and had lost the transfer; the cooler controller `0DB0:6A05` was not affected. Uploads of 211,237 bytes (third-party) and 227,243 bytes (the vendor's largest, capture 1b) work. The real limit lies between 227,243 and 459,561 bytes and was deliberately not probed further, since every overshoot resets the LCD; a driver should stay at the vendor's sizes (about 230 KB at most).
+
 ### 7.3 Settings file (capture 1, after every backlight or direction change)
 
 The vendor persists the LCD's settings by writing a 3-byte file named **`HMI_FW_Setting.ini`** whose content
