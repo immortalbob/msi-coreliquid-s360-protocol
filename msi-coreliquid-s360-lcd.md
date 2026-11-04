@@ -84,7 +84,7 @@ layout described in section 4.
 |---|---|---|---|---|---|
 | `0x10` | `GET_DEV_ID` | 4 | `0x11`, 4 | never sent by the vendor; OBSERVED 2026-10-31 | 4.1 |
 | `0x14` | `GET_DEV_INFO` | 4 | `0x15`, 20 declared, **16 on the wire** | CAPTURED (capture 1, 06:42:20.646) | 4.2 |
-| `0x16` | `SET_DEV_TIME` | 4 | none | METADATA only; never sent | 4.3 |
+| `0x16` | `SET_DEV_TIME` | 4 | none | METADATA; OBSERVED 2026-11-04 accepted, no visible effect | 4.3 |
 | `0x18` | `SET_LCM_BACKLIGHT` | 4 | none | CAPTURED (capture 1, 6 frames) | 4.4 |
 | `0x1A` | `SET_LCM_DIR` | 4 | none | CAPTURED (capture 1, 6 frames) | 4.5 |
 | `0x1C` | `SET_LCM_RESET` | 4 | none | METADATA only; **do not send** | 10 |
@@ -102,8 +102,8 @@ layout described in section 4.
 | `0x3A` | `SEND_HOST_MSG` | 55 | none | CAPTURED (11 frames, all carrying the temperature-unit string) | 8.4 |
 | `0x3C` | `SEND_HOST_GPU_INFO` | 12 (touch panel: 32) | none | METADATA only; never sent (GPU values travel in `0x30`) | 8.1 |
 | `0x40` | `PLAY_MEDIA_NODE` | 42 | none | CAPTURED (103 frames) | 6 |
-| `0x42` | `STOP_MEDIA_NODE` | 32 | none | METADATA only; never sent | 6 |
-| `0x44` | `PAUSE_MEDIA_NODE` | 32 | none | METADATA only; never sent | 6 |
+| `0x42` | `STOP_MEDIA_NODE` | 32 | none | METADATA; OBSERVED 2026-11-04 no visible effect on a paused node | 6.3 |
+| `0x44` | `PAUSE_MEDIA_NODE` | 32 | none | METADATA; **OBSERVED 2026-11-04: freezes the media and then the firmware takes no further command until a power cut. Do not send** | 6.3 |
 | `0x50` | `SET_DISPLAY_MODE` | 19 | none | CAPTURED (39 frames, modes 0, 1, 2, 5 and 6) | 5 |
 | `0x52` | `GET_DISPLAY_MODE` | 1 | `0x53`, 19 | never sent by the vendor (the touch panel lacks it); OBSERVED 2026-10-31 | 5.6 |
 
@@ -153,6 +153,10 @@ three times (Windows `ERROR_SEM_TIMEOUT`) before the LCD answered normally: a la
 Wait about 2 s after enumeration and retry.
 
 ### 4.3 `SET_DEV_TIME` (`0x16`)
+
+**OBSERVED 2026-11-04 (third-party code):** sent once with the local wall-clock time as u32 Unix seconds while user
+media played; accepted, nothing visible changed. Whatever it sets is not the clock pages' time, which comes from
+`SEND_HOST_TIME`.
 
 METADATA: `SetDeviceTime(long unixTime)`, payload 4 bytes. INFERRED: u32 Unix time. Never sent by the
 vendor, which uses `SEND_HOST_TIME` instead. UNKNOWN whether this firmware acts on it.
@@ -398,6 +402,16 @@ at all with `scrollDir` 0 and the unit of `x`, `y` are UNKNOWN.
 
 ### 6.3 `STOP_MEDIA_NODE` (`0x42`), `PAUSE_MEDIA_NODE` (`0x44`)
 
+**OBSERVED 2026-11-04 (third-party code, firmware 9), one node name each (`M1-S7-V-R0.mp4`, the user media that was
+playing):** `PAUSE_MEDIA_NODE` froze the media on a frame at once, which confirms the name[32] layout. From then on the
+panel answered `GET_DEV_INFO` normally but accepted no further command: `STOP_MEDIA_NODE` for the same node, two
+selections of the image slot, a clock page and back, and a new upload (whose `SEND_FILE_NODE` went out and whose data
+reports then timed out) all changed nothing on the screen, and every later `SET_REPORT` timed out at the HID level. A
+USB-level restart of the device node re-enumerated the panel in the same state; only a power cut (PC shut down, PSU
+off for 30 s) brought it back. The cooler controller `6A05` kept running throughout. **Treat `PAUSE_MEDIA_NODE` as a
+command that wedges this firmware; `STOP_MEDIA_NODE` showed no effect on a paused node and may still work on a playing
+one (UNKNOWN).**
+
 METADATA: `StopMediaNode(string NodeName)`, `PauseMediaNode(string NodeName)`, payload 32 bytes. INFERRED:
 the node name alone, zero padded. Never sent by the vendor: a mode change simply issues a new
 `SET_DISPLAY_MODE`.
@@ -486,6 +500,15 @@ is written; a driver that only changes the backlight temporarily need not write 
 write (INFERRED); do it sparingly.
 
 ### 7.4 Monitor-page assets for design 4 (capture 1c, 07:24:19 to 07:24:37)
+
+**OBSERVED 2026-11-04 (third-party code):** the same 18 node names uploaded with third-party PNGs of the sizes read from
+the vendor's files in this capture (240 × 320 and 320 × 240 backgrounds, ten 42 × 70 digits, 240 × 67 and 240 × 32
+titles; 8-bit RGBA like the vendor's, but with an `sBIT` chunk instead of the vendor's `sRGB`/`gAMA`/`pHYs` chunks),
+in the vendor's order (image slot 2 first, uploads, then `SET_DISPLAY_MODE` design 4): the panel kept showing an MSI
+logo (INFERRED the slot-2 picture), reported status `0x01F0` by itself 15 s after the uploads ended, and **reset** (left
+the bus and re-enumerated) 23 s after the selection; the uploads were lost as usual. Whether the vendor's own assets
+would have composed the page is UNKNOWN: in this capture the vendor left design 4 after 1 ms. The pixel format is not
+the difference; the chunk layout, the content, or design 4 under the live feed may be.
 
 Before `SET_DISPLAY_MODE` with design id 4, the vendor first switched the display to image slot 2 (a holding
 picture, INFERRED) and then uploaded 18 PNGs, one per second, each with the sequence of 7.1:
@@ -708,8 +731,8 @@ completes, with no further frame. Re-selecting slot 7 later in the same power-on
 |---|---|---|
 | 1 | `SEND_HOST_WEATHER`: position of the precipitation float, the zero prefix, other weather values | capture the weather page on days with rain or snow, or in another location |
 | 2 | ~~`GET_DEV_ID` reply, `GET_DISPLAY_MODE` reply~~ **Answered 2026-10-31** (sections 4.1 and 5.6) | done |
-| 3 | `SET_DEV_TIME` effect; `hourFormat` 0 | send the frame; change the Windows or vendor clock format and capture |
-| 4 | `STOP_MEDIA_NODE` / `PAUSE_MEDIA_NODE` payloads and effect | send with a known node name |
+| 3 | `SET_DEV_TIME` effect; `hourFormat` 0 | **sent 2026-11-04: accepted, no visible effect (4.3)**; `hourFormat` 0 still open |
+| 4 | `STOP_MEDIA_NODE` / `PAUSE_MEDIA_NODE` payloads and effect | **settled 2026-11-04 (6.3): the pause freezes the media and wedges the firmware; the stop showed no effect** |
 | 5 | Mode 7 "Dynamic" | never seen; find a vendor path that uses it, or try `SET_DISPLAY_MODE` 7 with a known node |
 | 6 | `scrollDir` 0 on a multi-line banner; `x`, `y` units (`scrollDir` 1 = left to right, OBSERVED 2026-11-01) | vary them on the device |
 | 7 | `SAVE_FILE_NODE`, `HMI_FW_Mode.ini`. Uploads without them are volatile (OBSERVED 2026-11-01, 7.1) | upload, save, power-cycle, play by name |

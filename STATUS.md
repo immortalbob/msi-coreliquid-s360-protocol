@@ -23,7 +23,7 @@ Part of the [S360 protocol reference](README.md). One row per command; the tags 
 |---|---|---|---|---|
 | `0x10` | `GET_DEV_ID` | complete: reply `A6 9B 00 00` = PID `0x9BA6` | no (vendor never sends it); OBSERVED 2026-10-31 | |
 | `0x14` | `GET_DEV_INFO` | complete | yes | |
-| `0x16` | `SET_DEV_TIME` | INFERRED | no | effect |
+| `0x16` | `SET_DEV_TIME` | INFERRED u32 Unix time; OBSERVED 2026-11-04 accepted with no visible effect | no (third-party code) | what it sets |
 | `0x18` | `SET_LCM_BACKLIGHT` | complete | yes | |
 | `0x1A` | `SET_LCM_DIR` | complete | yes | physical rotation per value |
 | `0x1C` | `SET_LCM_RESET` | do not send | no | |
@@ -41,14 +41,13 @@ Part of the [S360 protocol reference](README.md). One row per command; the tags 
 | `0x3A` | `SEND_HOST_MSG` | complete for the unit string | yes | other text, sync-mode string |
 | `0x3C` | `SEND_HOST_GPU_INFO` | INFERRED | no | unused by the vendor |
 | `0x40` | `PLAY_MEDIA_NODE` | complete; banner speed Fast 7, Normal 4, Slow 1; `scrollDir` 1 = left to right, OBSERVED 2026-11-01 | yes | `scrollDir` 0, `x`/`y` units |
-| `0x42` | `STOP_MEDIA_NODE` | INFERRED | no | |
-| `0x44` | `PAUSE_MEDIA_NODE` | INFERRED | no | |
+| `0x42` | `STOP_MEDIA_NODE` | name[32]; OBSERVED 2026-11-04 no effect on a paused node | no (third-party code) | effect on a playing node |
+| `0x44` | `PAUSE_MEDIA_NODE` | name[32]; **OBSERVED 2026-11-04: freezes the media, then the firmware takes no command until a power cut. Do not send** | no (third-party code) | |
 | `0x50` | `SET_DISPLAY_MODE` | complete for modes 0, 1, 2, 5, 6; every mode driven by third-party code, OBSERVED 2026-10-31 and 2026-11-01 | yes | mode 7 (Dynamic); banner background numbering |
 | `0x52` | `GET_DISPLAY_MODE` | complete for modes 0, 1, 2, 5: byte 0 = active flag, then the mode's header and its last selection | no (vendor never sends it); OBSERVED 2026-10-31 | |
 
-Remaining UNKNOWN on the LCD: `SET_DEV_TIME`,
-`STOP_MEDIA_NODE` / `PAUSE_MEDIA_NODE` (`0x42` / `0x44`), `hourFormat` 0 and the Dynamic mode (7), plus the
-smaller gaps in the table.
+Remaining UNKNOWN on the LCD: what `SET_DEV_TIME` sets, `STOP_MEDIA_NODE` on a playing node, whether design 4 works
+with the vendor's own assets, `hourFormat` 0 and the Dynamic mode (7), plus the smaller gaps in the table.
 
 Prior public work is listed under "Related work" in the [README](README.md). It is reported from the web and
 not verified by us. One project (sakir) describes the Dynamic mode's node names and timing at the level of
@@ -56,6 +55,12 @@ MSI's API, without byte layouts.
 
 ## Change log
 
+- **2026-11-04, update.** Three never-captured LCD opcodes sent once each by third-party code and the design-4 asset upload
+  tried with third-party PNGs (LCD document 4.3, 6.3, 7.4; all OBSERVED): `SET_DEV_TIME` accepted with no visible effect;
+  `PAUSE_MEDIA_NODE` froze the media and left firmware 9 answering reads but no commands until a power cut (a USB-node
+  restart did not clear it); `STOP_MEDIA_NODE` showed no effect on the paused node; design 4 with third-party assets of
+  the vendor's sizes never composed and the panel reset itself 23 s after the selection. Both tables and the open
+  questions updated; the pause is now marked "do not send".
 - **2026-11-02, update.** The upload size limit (OBSERVED): a 459,561-byte upload resets the LCD mid-transfer; 211,237
   and 227,243 bytes work; the limit between them was not probed (LCD document, section 7.2, "Size limit").
 

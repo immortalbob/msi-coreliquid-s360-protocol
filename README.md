@@ -17,9 +17,13 @@ side was not documented anywhere public. On 2026-10-28 the USB traffic between M
 captured with USBPcap while every function of the LCD page was exercised, and the frames were decoded. This
 reference writes down what was seen, what MSI's own software declares, and what is still unknown, so that
 anyone writing a driver for this cooler can start from facts rather than guesses. Bench tests on the same unit
-with third-party code (2026-10-26 to 2026-11-01) later answered several questions the captures could not, such
+with third-party code (2026-10-26 to 2026-11-04) later answered several questions the captures could not, such
 as the power-on state, the Default and Smart modes, the missing feed timeout, the two LCD queries the vendor
-never sends, and how long the LCD keeps uploaded media (only while powered); those statements are tagged OBSERVED.
+never sends, how long the LCD keeps uploaded media (only while powered), the upload size that resets the LCD, and
+three of the opcodes the vendor never sends (`SET_DEV_TIME` does nothing visible; `PAUSE_MEDIA_NODE` freezes the
+media and leaves the firmware taking no further command until a power cut; `STOP_MEDIA_NODE` showed no effect) as
+well as the design-4 page with third-party assets (the panel reset itself); those statements are tagged OBSERVED.
+Two of them are warnings for driver writers: see the LCD document, sections 6.3 and 7.4.
 
 ## Scope
 
@@ -122,6 +126,18 @@ covered by our captures and remain unverified.
 
 **Firmware.** No public firmware download or change log exists for the S360 as far as the search found;
 MSI Center's live update is the only update path.
+
+## Related references
+
+The same PC's other devices are documented in the same way, each in its own repository:
+
+- [msi-meg-z790-ace-protocol](https://github.com/immortalbob/msi-meg-z790-ace-protocol): MSI MEG Z790 ACE motherboard: Mystic Light, the NCT6687D fan and sensor controller, MSI software and BIOS
+- [lian-li-uni-fan-sl-v2-protocol](https://github.com/immortalbob/lian-li-uni-fan-sl-v2-protocol): Lian Li UNI FAN SL V2 and the UNI HUB SL V2 controller
+- [lian-li-universal-screen-protocol](https://github.com/immortalbob/lian-li-universal-screen-protocol): Lian Li Universal Screen 8.8": LCD and LED ring
+- [razer-peripherals-protocol](https://github.com/immortalbob/razer-peripherals-protocol): Razer DeathAdder V2, Huntsman V2, Kraken V3 Pro and Synapse 3
+- [asus-xg34wcdg-protocol](https://github.com/immortalbob/asus-xg34wcdg-protocol): ASUS ROG Strix OLED XG34WCDG monitor: DDC/CI and the Aura USB interface
+- [msi-optix-g27c2-protocol](https://github.com/immortalbob/msi-optix-g27c2-protocol): MSI Optix G27C2 monitor: DDC/CI and EDID
+- [msi-rtx4090-gaming-x-trio-protocol](https://github.com/immortalbob/msi-rtx4090-gaming-x-trio-protocol): MSI GeForce RTX 4090 Gaming X Trio: NVML and NVAPI control on Windows
 
 ## Licence
 
