@@ -25,9 +25,9 @@ Part of the [S360 protocol reference](README.md). One row per command; the tags 
 | `0x14` | `GET_DEV_INFO` | complete | yes | |
 | `0x16` | `SET_DEV_TIME` | INFERRED u32 Unix time; OBSERVED 2026-11-04 accepted with no visible effect | no (third-party code) | what it sets |
 | `0x18` | `SET_LCM_BACKLIGHT` | complete | yes | |
-| `0x1A` | `SET_LCM_DIR` | complete | yes | physical rotation per value |
+| `0x1A` | `SET_LCM_DIR` | complete | yes | physical rotation per value; host-composed pages (slot 7, banner) only display at direction 0, OBSERVED 2026-11-14 |
 | `0x1C` | `SET_LCM_RESET` | do not send | no | |
-| `0x20` | `SEND_FILE_NODE` | complete; third-party uploads of user media and banner OBSERVED 2026-11-01 | yes | `0x21` reply never read |
+| `0x20` | `SEND_FILE_NODE` | complete; third-party uploads of user media and banner OBSERVED 2026-11-01; stills accepted but never displayed in slot 7, OBSERVED 2026-11-14 | yes | `0x21` reply never read |
 | `0x22` | `HMI_SEND_FILE_DATA_START` | complete | yes | |
 | `0x24` | | UNKNOWN | no | |
 | `0x26` | `HMI_SEND_FILE_DATA_END` | complete | yes | |
@@ -54,6 +54,18 @@ not verified by us. One project (sakir) describes the Dynamic mode's node names 
 MSI's API, without byte layouts.
 
 ## Change log
+
+- **2026-11-14, update: where host-composed pages appear, and slot 7 is video-only.** All OBSERVED on a unit
+  with LCD firmware 9 and controller 0x04 whose panel is mounted landscape (MSI Center leaves the direction at 90; LCD firmware 9, controller 0x04).
+  Selecting the user image slot or the text banner while the direction was 90 displays nothing, and the same
+  uploads appear after `SET_LCM_DIR 0` (sections 4.5, 5.2, 5.3); a node already playing is still not rotated by
+  a direction change, as reported on 2026-10-28. Slot 7 never displays a still: PNG in RGB and RGBA, from two
+  encoders, under both the `O` and `V` node names, all completed with status `0x00F0` and stayed invisible at
+  either direction, while H.264 played. The vendor's landscape set (`LCD\ImageH`) turned out to be 320 × 240 at
+  Constrained Baseline level 1.3, 30 fps, unlike the portrait one (section 7.2). A 0.25 s clip of a still
+  picture stays on screen, and uploading another one replaces the picture, which is a cheap way to redraw a page
+  (section 7.2). A stale `0x00F1` does not block commands (section 4.2). Sections 4.2, 4.5, 5.2, 5.3, 7.2, 11
+  and 13 updated.
 
 - **2026-11-04, update.** Three never-captured LCD opcodes sent once each by third-party code and the design-4 asset upload
   tried with third-party PNGs (LCD document 4.3, 6.3, 7.4; all OBSERVED): `SET_DEV_TIME` accepted with no visible effect;

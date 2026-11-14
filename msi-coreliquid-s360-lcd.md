@@ -148,6 +148,12 @@ stayed through further uploads and service restarts and was cleared only by a po
 flag set worked like the first one, as the vendor's do. A driver can therefore ignore `0x00F0` / `0x01F0` for
 uploads and still stop all writes on the flash, reset and failure codes.
 
+**OBSERVED 2026-11-14: a stale `0x00F1` does not stop commands either.** The panel spent hours reporting
+`0x00F1` ("flash OK", left over from an earlier settings-file write) and answered every command normally:
+`SET_LCM_BACKLIGHT` 50 read back as 50, `SET_DISPLAY_MODE` changed the page and uploads completed. So a
+flash-*completion* flag behaves like the download ones; only the in-progress codes (`0x01F1`, `0x01F2`) and the
+failures (`0xFFF0`..`0xFFF2`) are worth blocking on.
+
 **After a cold power-on (OBSERVED 2026-10-28)** the first GET_REPORT for the `GET_DEV_INFO` reply timed out
 three times (Windows `ERROR_SEM_TIMEOUT`) before the LCD answered normally: a late answer, not a lost device.
 Wait about 2 s after enumeration and retry.
@@ -194,6 +200,14 @@ so the firmware is expected to pick the asset for the current direction (INFERRE
 
 OBSERVED 2026-10-28 (sent by a third-party driver): the direction turns the firmware-drawn pages (the
 monitor page turned at 90° and back at 0°), but not a playing media node.
+
+**OBSERVED 2026-11-14: host-composed pages only appear at direction 0.** On a unit whose panel is mounted
+landscape (so MSI Center leaves the direction at 90), selecting the user image slot (mode 1, slot 7) with the
+direction at 90 showed nothing: neither a 240 × 320 file nor the vendor's own 320 × 240 stream (section 7.2)
+appeared, and the panel stayed on its built-in animation. The same uploads, selected after `SET_LCM_DIR 0`,
+displayed. The text banner (mode 2) behaved the same way: nothing at 90, displayed at 0. This does not
+contradict the 2026-10-28 observation that a node *already playing* is not rotated by a direction change; what
+is new is that a media page *selected* at a non-zero direction never starts.
 
 ## 5. `SET_DISPLAY_MODE` (`0x50`) and the display modes
 
@@ -261,6 +275,12 @@ content is UNKNOWN. Each `SET_DISPLAY_MODE` is followed within 1 ms by **eight
 07:09:47.348  01 6B 5A 50 00 13 00 00 00  01 00 08  00 00 00 00 00 00 00 01 00 .. 00     slot 7 (user media)
 ```
 
+**OBSERVED 2026-11-14: slot 7 plays video only.** Every still tried was accepted (`SEND_FILE_NODE`, the data
+reports, `FILE_DATA_END`, status `0x00F0`) and never displayed: a 240 × 320 8-bit RGB PNG and a 240 × 320 RGBA
+one, written by Go's encoder and re-encoded by ffmpeg (adding a `pHYs` chunk), uploaded as `M1-S7-O-R0.png` and
+as `M1-S7-V-R0.png`. A magenta test card stayed invisible at direction 90 and at direction 0, while the
+built-in slots 0-6 displayed normally. H.264 played in the same slot (section 7.2) at direction 0.
+
 ### 5.3 Mode 2, text banner
 
 `screen[0]` = the background number, `count` = 1 (CAPTURED, captures 1b, 1c, 1d). Values `04`, `05`, `06`
@@ -277,6 +297,10 @@ the same picture of the word "test"; the scroll fields of 6.2 changed independen
 third-party 1,720-byte PNG (white text on a transparent canvas, drawn with ffmpeg's `drawtext`) sent with the
 sequence of 9.3 (background 4, node `R2`, `scrollDir` 1, `scrollSpeed` 4) scrolled **left to right** over the
 background, fully readable.
+
+**OBSERVED 2026-11-14:** the banner needs direction 0 as well (section 4.5). On the landscape-mounted unit the
+same 420 × 39 RGBA PNG showed nothing at direction 90 and displayed at direction 0 — rotated a quarter turn,
+because the firmware composes the banner in its native portrait frame and the panel itself is turned.
 
 ```
 07:11:53.480  01 6B 5A 50 00 13 00 00 00  02 00 01  04 00 .. 00     background 4
@@ -476,6 +500,20 @@ ISO BMFF with the brands `isom`, `iso2`, `avc1`, `mp41` (the ffmpeg MP4 muxer), 
 ffmpeg 7.0 with the same parameters (`-vf scale=240:320,...,fps=25,format=yuv420p -c:v libx264 -profile:v
 baseline -level:v 3.0 -b:v 512k -bf 0 -f mp4`) plays in slot 7. Media are not rotated by `SET_LCM_DIR`
 (section 4.5), so the file must already be in the panel's orientation.
+
+**OBSERVED 2026-11-14: the vendor transcodes per orientation, and the landscape set differs.** The vendor's
+`LCD` folder has both `ImageV` and `ImageH`. The clips under `LCD\ImageH` — the ones converted for a landscape mounting, 1.5 MB
+and 3.1 MB in this install — are **320 × 240**, H.264 **Constrained Baseline, level 1.3**, 30 fps, about
+264 kbit/s. The parameters quoted above are the `ImageV` (portrait) set. `LCD\BannerH\Video` and
+`LCD\BannerV\Video` exist too, empty here. The frame size, the profile and the direction are therefore chosen
+together, and a driver that draws its own page has to do the same: the 320 × 240 design rotated into the
+240 × 320 frame for the landscape mounting, shown at direction 0 (section 4.5).
+
+**OBSERVED 2026-11-14: a very short clip is enough, and uploading again updates the page.** The firmware stops
+on the last frame instead of looping or falling back to the built-in animation: a 0.25 s clip of a still
+picture (six frames, about 11 KB) stayed on screen. Uploading a second clip to the same node name 4 s later
+replaced the picture. Redrawing a page is therefore cheap — draw it, encode a handful of frames, upload about
+11 KB — which is how a host can show its own live values in slot 7.
 
 **Size limit.** OBSERVED 2026-11-02: an upload of **459,561 bytes** (a 58-frame MP4 in this format) made the LCD drop off USB partway through the data reports; it re-enumerated by itself about 4 s later (`GET_DEV_INFO`: firmware 9, status idle) and had lost the transfer; the cooler controller `0DB0:6A05` was not affected. Uploads of 211,237 bytes (third-party) and 227,243 bytes (the vendor's largest, capture 1b) work. The real limit lies between 227,243 and 459,561 bytes and was deliberately not probed further, since every overshoot resets the LCD; a driver should stay at the vendor's sizes (about 230 KB at most).
 
@@ -712,7 +750,7 @@ completes, with no further frame. Re-selecting slot 7 later in the same power-on
 | Panel | 240 × 320 | CAPTURED (asset sizes), INFERRED (orientation handling) |
 | Monitor page refresh byte | 5 | CAPTURED; meaning INFERRED |
 | Design ids | 1, 2, 3 built in; 4 host-supplied | CAPTURED |
-| Image slots | 0..6 built in (slot 6 never selected by the vendor, shows a picture: OBSERVED 2026-10-31), 7 user; user media played at `x = y = 350`, kept only while powered (OBSERVED 2026-11-01) | CAPTURED |
+| Image slots | 0..6 built in (slot 6 never selected by the vendor, shows a picture: OBSERVED 2026-10-31), 7 user; user media played at `x = y = 350`, kept only while powered (OBSERVED 2026-11-01), video only, and only displayed at direction 0 (OBSERVED 2026-11-14) | CAPTURED |
 | User media | H.264 MP4, 240 × 320, Baseline 3.0, 25 fps, about 512 kbit/s, node `M1-S7-V-R0.mp4` | HOST, OBSERVED |
 | Banner | played at `x = y = 200`; One Line = node `R2`, `scrollDir` 1 (left to right, OBSERVED); Multi-Line = node `R0`, `scrollDir` 0; speed Fast 7, Normal 4, Slow 1; host-rendered text, any 420 × 39 RGBA PNG | CAPTURED |
 | Clock styles | 0..4 | CAPTURED |
@@ -746,9 +784,10 @@ Not part of the wire protocol. These items help relate the vendor's settings to 
 read from the vendor's installed files and registry key names on the capturing PC; nothing was modified.
 
 **Assets.** The vendor's Coreliquid installation keeps the LCD assets in an `LCD` folder:
-`HWMonitor\{background,number,title,unit}` for the monitor page (sizes as in 7.4), `ImageV` for user media
-with the transcoded MP4s in `ImageV\Video` (file sizes equal to the uploads of 7.2), `Font` with the rendered
-banner image `Sample.png` (5.3), and `Weather`.
+`HWMonitor\{background,number,title,unit}` for the monitor page (sizes as in 7.4), `ImageV` and `ImageH` for
+user media with the transcoded MP4s in `ImageV\Video` (file sizes equal to the uploads of 7.2) and
+`ImageH\Video` (320 × 240, level 1.3, 30 fps; section 7.2), `BannerH\Video` and `BannerV\Video` (empty here),
+`Font` with the rendered banner image `Sample.png` (5.3), and `Weather`.
 
 **Settings.** The vendor keeps the LCD's UI state in its own registry key
 `HKLM\SOFTWARE\WOW6432Node\MSI\MSI Center\Component\Coreliquid\LCD`. Value names and how they map to the
